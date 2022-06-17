@@ -84,15 +84,28 @@ def main():
         # WIP: TODO: troughs calculation appears to be correct
         # we can make this a lot more efficient by stopping early here
         # Also need to tidy up the several competing approaches
+        if len(troughs) > 0:
+            lmin1 = troughs[0]
+            lmin1_conf = frame[lmin1]
 
-        # Here we check for a valid lmin2
-        lmin2_is_valid = lmin2 > 0 and lmin2 < 110
+            if len(troughs) > 1:
+                lmin2 = troughs[1]
+                lmin2_conf = frame[lmin2]
 
-        # and then compare the confidences (already scaled for the lag relative to E for a fair comparison)
-        if lmin2_is_valid and lmin2_conf < lmin2_conf:
-            lmin = lmin2
+            # Here we check for a valid lmin2
+            lmin2_is_valid = lmin2 > 0 and lmin2 < 110
+
+            # and then compare the confidences (already scaled for the lag relative to E for a fair comparison)
+            if lmin2_is_valid and lmin2_conf < lmin2_conf:
+                lmin = lmin2
+            else:
+                lmin = lmin1
         else:
-            lmin = lmin1
+            lmin1 = 0
+            lmin1_conf = 0
+            lmin2 = 0
+            lmin2_conf = 0
+            lmin = 0
 
         if e_cache[lmin] < MIN_E:
             lmin = 0
