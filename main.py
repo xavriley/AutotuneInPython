@@ -6,7 +6,7 @@ from scipy.signal import find_peaks
 
 DS_FACTOR = 8
 EPS = 0.04
-MIN_E = 0.005
+MIN_E = 0.05
 
 
 def main():
@@ -49,28 +49,34 @@ def main():
             if e_cache[lag] < MIN_E:
                 continue
 
+            # TODO: deal with flat local minima a == b == c, without picking up noise in the initial ramp up
             if confidence < confidence_prev and confidence < confidence_next:
-                troughs.append(lag)
+                # we are in a local minima
+                if (e_cache[lag] - (2 * h_cache[lag])) < EPS:
+                    # we are under the non-scaled threshold
+                    if confidence < (e_cache[lag] * EPS):
+                        # we are under the scaled threshold
+                        troughs.append(lag)
 
-            if confidence <= (e_cache[lag] * EPS):
-                if region0_end > 0 and region1_end < 0:
-                    if region1_start < 0:
-                        region1_start = lag
-                    if confidence < lmin1_conf:
-                        lmin1_conf = confidence
-                        lmin1 = lag
+            # if confidence <= (e_cache[lag] * EPS):
+            #     if region0_end > 0 and region1_end < 0:
+            #         if region1_start < 0:
+            #             region1_start = lag
+            #         if confidence < lmin1_conf:
+            #             lmin1_conf = confidence
+            #             lmin1 = lag
 
-                if region0_end > 0 and region1_end > 0 and region2_end < 0:
-                    if region2_start < 0:
-                        region2_start = lag
-                    if confidence < lmin2_conf:
-                        lmin2_conf = confidence
-                        lmin2 = lag
-            else:
-                if region1_start > 0 and region1_end < 0:
-                    region1_end = lag - 1
-                elif region1_end > 0 and region2_start > 0 and region2_end < 0:
-                    region2_end = lag - 1
+            #     if region0_end > 0 and region1_end > 0 and region2_end < 0:
+            #         if region2_start < 0:
+            #             region2_start = lag
+            #         if confidence < lmin2_conf:
+            #             lmin2_conf = confidence
+            #             lmin2 = lag
+            # else:
+            #     if region1_start > 0 and region1_end < 0:
+            #         region1_end = lag - 1
+            #     elif region1_end > 0 and region2_start > 0 and region2_end < 0:
+            #         region2_end = lag - 1
 
             frame[lag] = confidence
             confidence_prev = confidence
@@ -96,9 +102,11 @@ def main():
             lmin2_is_valid = lmin2 > 0 and lmin2 < 110
 
             # and then compare the confidences (already scaled for the lag relative to E for a fair comparison)
-            if lmin2_is_valid and lmin2_conf < lmin2_conf:
+            if lmin2_is_valid and (lmin2_conf * 3) < lmin1_conf:
+                frame[lmin2] = lmin2_conf * 3
                 lmin = lmin2
             else:
+                frame[lmin2] = lmin2_conf * 3
                 lmin = lmin1
         else:
             lmin1 = 0
@@ -255,25 +263,26 @@ def main():
     plt.tight_layout()
     # axs[0].plot(conf_output[0], ',')
     # axs[0].plot(conf_output[1], ',')
-    axs[0].plot(frame_output[9007])
+    fr = 13048
+    axs[0].plot(frame_output[fr])
 
     tmp_troughs = np.zeros(128)
 
-    if (len(troughs_output[9007]) > 0):
-        tmp_troughs[troughs_output[9007]] = EPS
+    if (len(troughs_output[fr]) > 0):
+        tmp_troughs[troughs_output[fr]] = EPS
     axs[0].plot(tmp_troughs)
-    axs[0].plot(lmin_output[0][9007], conf_output[0][9007])
-    axs[0].plot(lmin_output[1][9007], conf_output[1][9007])
-    breakpoint()
-    axs[0].set_xlim(0, 60)
+    axs[0].plot(lmin_output[0][fr], conf_output[0][fr])
+    axs[0].plot(lmin_output[1][fr], conf_output[1][fr])
+    print(f"chosen lmin: {lmin_output[2][fr]}")
+    # axs[0].set_xlim(0, 60)
     axs[0].set_ylim(0, EPS)
     axs[1].pcolormesh(np.array(frame_output).T,
                       norm=colors.PowerNorm(gamma=0.5),
                       cmap='PuBu_r',
                       shading='auto')
     axs[1].plot(lmin_output[1], ',', color=colors.to_rgba('y', 0.5))
-    axs[1].plot(lmin_output[0], '.', color=colors.to_rgba('g', 0.5))
-    axs[1].plot(lmin_output[2], ',', color=colors.to_rgba('r', 0.75))
+    axs[1].plot(lmin_output[0], ',', color=colors.to_rgba('g', 0.5))
+    axs[1].plot(lmin_output[2], '.', color=colors.to_rgba('r', 0.75))
     # axs[1].plot(ds_wave_output)
     plt.savefig('bobby.png', dpi=300)
     import subprocess
