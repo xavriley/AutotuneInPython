@@ -36,9 +36,12 @@ def main():
         # lmin2_conf = confs[1] if len(confs) > 1 and e_cache[
         #     idxs[0]] > MIN_E else 0
 
+        troughs = []
+        confidence_prev = 0
+        confidence = (e_cache[2] - 2 * h_cache[2]) * e_cache[2]
+        confidence_next = (e_cache[2 + 1] -
+                           (2 * h_cache[2 + 1])) * e_cache[2 + 1]
         for lag in range(2, 110):
-            confidence = e_cache[lag] - 2 * h_cache[lag]
-
             # We need to avoid the lag that occasionally appears at zero
             if confidence > (e_cache[lag] * EPS) and region0_end < 0:
                 region0_end = lag - 1
@@ -46,9 +49,10 @@ def main():
             if e_cache[lag] < MIN_E:
                 continue
 
-            if confidence <= (e_cache[lag] * EPS):
-                frame[lag] = confidence
+            if confidence < confidence_prev and confidence < confidence_next:
+                troughs.append(lag)
 
+            if confidence <= (e_cache[lag] * EPS):
                 if region0_end > 0 and region1_end < 0:
                     if region1_start < 0:
                         region1_start = lag
@@ -68,13 +72,24 @@ def main():
                 elif region1_end > 0 and region2_start > 0 and region2_end < 0:
                     region2_end = lag - 1
 
-        frame = (e_cache - (2 * h_cache)) * e_cache
+            frame[lag] = confidence
+            confidence_prev = confidence
+            confidence = confidence_next
+            confidence_next = (e_cache[lag + 1] -
+                               (2 * h_cache[lag + 1])) * e_cache[lag + 1]
+
+        # frame = (e_cache - (2 * h_cache)) * e_cache
         # frame[frame < e_cache * EPS] = 10
 
+        # WIP: TODO: troughs calculation appears to be correct
+        # we can make this a lot more efficient by stopping early here
+        # Also need to tidy up the several competing approaches
+
         # Here we check for a valid lmin2
-        # and then scale the confidence for the lag relative to E for a fair comparison
-        if lmin2 > 0 and lmin2 < 110 and (lmin2_conf * e_cache[lmin2]) < (
-                lmin1_conf * e_cache[lmin1]):
+        lmin2_is_valid = lmin2 > 0 and lmin2 < 110
+
+        # and then compare the confidences (already scaled for the lag relative to E for a fair comparison)
+        if lmin2_is_valid and lmin2_conf < lmin2_conf:
             lmin = lmin2
         else:
             lmin = lmin1
@@ -92,7 +107,7 @@ def main():
         # confidence = e_cache - (2 * h_cache)
         # frame[np.where(confidence <= (e_cache * EPS))] = 20
 
-        return frame, lmin1, lmin2, lmin, lmin1_conf, lmin2_conf
+        return frame, lmin1, lmin2, lmin, lmin1_conf, lmin2_conf, troughs
 
     def ds_update_e_and_h(idx):
         # wrap_ds = lambda x, idx: (idx - (x * DS_FACTOR)) % mask
@@ -144,10 +159,12 @@ def main():
     e_cache = np.zeros(128)
     h_cache = np.zeros(128)
     frame_output = []
+    troughs_output = []
     lmin_output = [[], [], []]
     conf_output = [[], []]
     ds_wave_output = []
     frame = np.zeros(128)
+    trough = np.array([])
 
     wrap = lambda x: x % mask
 
@@ -198,7 +215,7 @@ def main():
             #         print(f"Ediff {e_cache[lag] - slow_e}")
             #         print(f"Hdiff {h_cache[lag] - slow_h}")
 
-            frame, lmin1, lmin2, lmin, lmin1_conf, lmin2_conf = ds_predict_pitch(
+            frame, lmin1, lmin2, lmin, lmin1_conf, lmin2_conf, trough = ds_predict_pitch(
                 writephase)
             # if lmin1 < 8 and lmin > 0:
             #     breakpoint()
@@ -208,6 +225,7 @@ def main():
             conf_output[0].append(lmin1_conf)
             conf_output[1].append(lmin2_conf)
             frame_output.append(frame)
+            troughs_output.append(trough)
         elif writephase % 8 == 0:
             lmin_output[0].append(0)
             lmin_output[1].append(0)
@@ -215,20 +233,34 @@ def main():
             conf_output[0].append(0)
             conf_output[1].append(0)
             frame_output.append(frame)
+            troughs_output.append(trough)
             ds_update_e_and_h(writephase)
 
         writephase = (writephase + 1) % mask
 
-    fig, axs = plt.subplots(2, sharex=True, sharey=False)
+    fig, axs = plt.subplots(2, sharex=False, sharey=False)
     plt.tight_layout()
-    axs[0].plot(conf_output[0], ',')
-    axs[0].plot(conf_output[1], ',')
+    # axs[0].plot(conf_output[0], ',')
+    # axs[0].plot(conf_output[1], ',')
+    axs[0].plot(frame_output[9007])
+
+    tmp_troughs = np.zeros(128)
+
+    if (len(troughs_output[9007]) > 0):
+        tmp_troughs[troughs_output[9007]] = EPS
+    axs[0].plot(tmp_troughs)
+    axs[0].plot(lmin_output[0][9007], conf_output[0][9007])
+    axs[0].plot(lmin_output[1][9007], conf_output[1][9007])
+    breakpoint()
+    axs[0].set_xlim(0, 60)
+    axs[0].set_ylim(0, EPS)
     axs[1].pcolormesh(np.array(frame_output).T,
                       norm=colors.PowerNorm(gamma=0.5),
                       cmap='PuBu_r',
                       shading='auto')
-    axs[1].plot(lmin_output[2], '.', color='r')
-    axs[1].plot(lmin_output[0], '.', color='g')
+    axs[1].plot(lmin_output[1], ',', color=colors.to_rgba('y', 0.5))
+    axs[1].plot(lmin_output[0], '.', color=colors.to_rgba('g', 0.5))
+    axs[1].plot(lmin_output[2], ',', color=colors.to_rgba('r', 0.75))
     # axs[1].plot(ds_wave_output)
     plt.savefig('bobby.png', dpi=300)
     import subprocess
