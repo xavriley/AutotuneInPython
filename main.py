@@ -37,26 +37,40 @@ def main():
         #     idxs[0]] > MIN_E else 0
 
         troughs = []
+        initial_peak = -1
+        rising_edge = -1
+        falling_edge = -1
+        confidence_prev_prev = 0
         confidence_prev = 0
         confidence = (e_cache[2] - 2 * h_cache[2]) * e_cache[2]
         confidence_next = (e_cache[2 + 1] -
                            (2 * h_cache[2 + 1])) * e_cache[2 + 1]
+        confidence_next_next = (e_cache[2 + 2] -
+                                (2 * h_cache[2 + 2])) * e_cache[2 + 2]
         for lag in range(2, 110):
             # We need to avoid the lag that occasionally appears at zero
             if confidence > (e_cache[lag] * EPS) and region0_end < 0:
                 region0_end = lag - 1
 
-            if e_cache[lag] < MIN_E:
-                continue
+            # if initial_peak < 0 and confidence > confidence_prev and confidence >= confidence_next:
+            #     rising_edge = lag
+            # elif rising_edge > 0 and confidence == confidence_prev and confidence > confidence_next:
+            #     initial_peak = lag
+            # elif initial_peak < 0 and confidence > confidence_prev and confidence > confidence_next:
+            #     initial_peak = lag
 
-            # TODO: deal with flat local minima a == b == c, without picking up noise in the initial ramp up
-            if confidence < confidence_prev and confidence < confidence_next:
-                # we are in a local minima
-                if (e_cache[lag] - (2 * h_cache[lag])) < EPS:
-                    # we are under the non-scaled threshold
-                    if confidence < (e_cache[lag] * EPS):
-                        # we are under the scaled threshold
-                        troughs.append(lag)
+            if initial_peak < 0 and confidence > confidence_prev_prev and confidence >= confidence_prev and confidence >= confidence_next and confidence > confidence_next_next:
+                initial_peak = lag
+
+            if e_cache[lag] > MIN_E:
+                if initial_peak > 0:
+                    if confidence < confidence_prev_prev and confidence <= confidence_prev and confidence <= confidence_next and confidence < confidence_next_next:
+                        # we are in a local minima
+                        if (e_cache[lag] - (2 * h_cache[lag])) < EPS:
+                            # we are under the non-scaled threshold
+                            if confidence < (e_cache[lag] * EPS):
+                                # we are under the scaled threshold
+                                troughs.append(lag)
 
             # if confidence <= (e_cache[lag] * EPS):
             #     if region0_end > 0 and region1_end < 0:
@@ -79,10 +93,12 @@ def main():
             #         region2_end = lag - 1
 
             frame[lag] = confidence
+            confidence_prev_prev = confidence_prev
             confidence_prev = confidence
             confidence = confidence_next
-            confidence_next = (e_cache[lag + 1] -
-                               (2 * h_cache[lag + 1])) * e_cache[lag + 1]
+            confidence_next = confidence_next_next
+            confidence_next_next = (e_cache[lag + 2] -
+                                    (2 * h_cache[lag + 2])) * e_cache[lag + 2]
 
         # frame = (e_cache - (2 * h_cache)) * e_cache
         # frame[frame < e_cache * EPS] = 10
@@ -263,7 +279,7 @@ def main():
     plt.tight_layout()
     # axs[0].plot(conf_output[0], ',')
     # axs[0].plot(conf_output[1], ',')
-    fr = 13048
+    fr = 5207
     axs[0].plot(frame_output[fr])
 
     tmp_troughs = np.zeros(128)
@@ -287,6 +303,7 @@ def main():
     plt.savefig('bobby.png', dpi=300)
     import subprocess
     subprocess.run(["open", "-g", "bobby.png"])
+    breakpoint()
 
 
 if __name__ == "__main__":
