@@ -2,22 +2,22 @@ import numpy as np
 import librosa
 import matplotlib.colors as colors
 import matplotlib.pyplot as plt
-from scipy.signal import find_peaks
 
 DS_FACTOR = 8
-EPS = 0.04
+EPS = 0.4
 MIN_E = 0.05
+MIN_LAG = 2
+MAX_LAG = 110
+N = 8
+LMIN_OFFSET = 0
+e_cache = np.zeros(N)
+h_cache = np.zeros(N)
 
 
 def main():
     def ds_predict_pitch(idx):
         frame = np.zeros(128)
 
-        region0_end = -1
-        region1_start = -1
-        region1_end = -1
-        region2_start = -1
-        region2_end = -1
         lmin0 = 0
         lmin1 = 0
         lmin1_conf = 1000
@@ -25,85 +25,45 @@ def main():
         lmin2_conf = 1000
         lmin = 0
 
-        # confidence = e_cache - (2 * h_cache)
-        # idxs, data = find_peaks(-confidence, height=-EPS)
-        # confs = data['peak_heights']
-
-        # lmin1 = idxs[0] if len(idxs) > 0 and e_cache[idxs[0]] > MIN_E else 0
-        # lmin2 = idxs[1] if len(idxs) > 1 and e_cache[idxs[1]] > MIN_E else 0
-        # lmin1_conf = confs[0] if len(confs) > 0 and e_cache[
-        #     idxs[0]] > MIN_E else 0
-        # lmin2_conf = confs[1] if len(confs) > 1 and e_cache[
-        #     idxs[0]] > MIN_E else 0
-
         troughs = []
         initial_peak = -1
         rising_edge = -1
         falling_edge = -1
         confidence_prev_prev = 0
         confidence_prev = 0
-        confidence = (e_cache[2] - 2 * h_cache[2]) * e_cache[2]
-        confidence_next = (e_cache[2 + 1] -
-                           (2 * h_cache[2 + 1])) * e_cache[2 + 1]
-        confidence_next_next = (e_cache[2 + 2] -
-                                (2 * h_cache[2 + 2])) * e_cache[2 + 2]
-        for lag in range(2, 110):
-            # We need to avoid the lag that occasionally appears at zero
-            if confidence > (e_cache[lag] * EPS) and region0_end < 0:
-                region0_end = lag - 1
-
-            # if initial_peak < 0 and confidence > confidence_prev and confidence >= confidence_next:
-            #     rising_edge = lag
-            # elif rising_edge > 0 and confidence == confidence_prev and confidence > confidence_next:
-            #     initial_peak = lag
-            # elif initial_peak < 0 and confidence > confidence_prev and confidence > confidence_next:
-            #     initial_peak = lag
-
+        confidence = (ds_e_cache[2] - 2 * ds_h_cache[2]) * ds_e_cache[2]
+        confidence_next = (ds_e_cache[2 + 1] -
+                           (2 * ds_h_cache[2 + 1])) * ds_e_cache[2 + 1]
+        confidence_next_next = (ds_e_cache[2 + 2] -
+                                (2 * ds_h_cache[2 + 2])) * ds_e_cache[2 + 2]
+        for lag in range(MIN_LAG, MAX_LAG):
             if initial_peak < 0 and confidence > confidence_prev_prev and confidence >= confidence_prev and confidence >= confidence_next and confidence > confidence_next_next:
                 initial_peak = lag
 
-            if e_cache[lag] > MIN_E:
+            if ds_e_cache[lag] > MIN_E:
                 if initial_peak > 0:
                     if confidence < confidence_prev_prev and confidence <= confidence_prev and confidence <= confidence_next and confidence < confidence_next_next:
                         # we are in a local minima
-                        if (e_cache[lag] - (2 * h_cache[lag])) < EPS:
+                        if (ds_e_cache[lag] - (2 * ds_h_cache[lag])) < EPS:
                             # we are under the non-scaled threshold
-                            if confidence < (e_cache[lag] * EPS):
+                            if confidence < (ds_e_cache[lag] * EPS):
                                 # we are under the scaled threshold
                                 troughs.append(lag)
-
-            # if confidence <= (e_cache[lag] * EPS):
-            #     if region0_end > 0 and region1_end < 0:
-            #         if region1_start < 0:
-            #             region1_start = lag
-            #         if confidence < lmin1_conf:
-            #             lmin1_conf = confidence
-            #             lmin1 = lag
-
-            #     if region0_end > 0 and region1_end > 0 and region2_end < 0:
-            #         if region2_start < 0:
-            #             region2_start = lag
-            #         if confidence < lmin2_conf:
-            #             lmin2_conf = confidence
-            #             lmin2 = lag
-            # else:
-            #     if region1_start > 0 and region1_end < 0:
-            #         region1_end = lag - 1
-            #     elif region1_end > 0 and region2_start > 0 and region2_end < 0:
-            #         region2_end = lag - 1
+                                # if lag > MAX_LAG / 2:
+                                #     break
+                                # if len(troughs) == 2:
+                                #     # early break if we have found 2 x lmin values
+                                #     break
 
             frame[lag] = confidence
             confidence_prev_prev = confidence_prev
             confidence_prev = confidence
             confidence = confidence_next
             confidence_next = confidence_next_next
-            confidence_next_next = (e_cache[lag + 2] -
-                                    (2 * h_cache[lag + 2])) * e_cache[lag + 2]
+            confidence_next_next = (
+                ds_e_cache[lag + 2] -
+                (2 * ds_h_cache[lag + 2])) * ds_e_cache[lag + 2]
 
-        # frame = (e_cache - (2 * h_cache)) * e_cache
-        # frame[frame < e_cache * EPS] = 10
-
-        # WIP: TODO: troughs calculation appears to be correct
         # we can make this a lot more efficient by stopping early here
         # Also need to tidy up the several competing approaches
         if len(troughs) > 0:
@@ -131,25 +91,21 @@ def main():
             lmin2_conf = 0
             lmin = 0
 
-        if e_cache[lmin] < MIN_E:
+        if ds_e_cache[lmin] < MIN_E:
             lmin = 0
 
-        # frame[region0_end] = 20
-        # frame[region1_start] = 20
-        # frame[region1_end] = 40
-        # frame[region2_start] = 190
-        # frame[region2_end] = 100
-
-        # Highlight all areas that are candidates for a minLag
-        # confidence = e_cache - (2 * h_cache)
-        # frame[np.where(confidence <= (e_cache * EPS))] = 20
+        global LMIN_OFFSET
+        LMIN_OFFSET = lmin * DS_FACTOR
 
         return frame, lmin1, lmin2, lmin, lmin1_conf, lmin2_conf, troughs
 
-    def ds_update_e_and_h(idx):
+    def ds_update_e_and_h(idx,
+                          min_lag=MIN_LAG,
+                          max_lag=MAX_LAG,
+                          ds_factor=DS_FACTOR):
         # wrap_ds = lambda x, idx: (idx - (x * DS_FACTOR)) % mask
-        wrap_ds = lambda x, idx: (idx - (DS_FACTOR * x)) % mask
-        for lag in range(2, 110):
+        wrap_ds = lambda x, idx: (idx - (ds_factor * x)) % mask
+        for lag in range(min_lag, max_lag):
             onelag_idx = wrap_ds(lag, idx)
             twolag_idx = wrap_ds(2 * lag, idx)
 
@@ -159,28 +115,135 @@ def main():
             e = np.square(ds_buf[idx])
             h = ds_buf[idx] * ds_buf[onelag_idx]
 
-            e_cache[lag] = e_cache[lag] - oldest_e + e
-            h_cache[lag] = h_cache[lag] - oldest_h + h
+            ds_e_cache[lag] = ds_e_cache[lag] - oldest_e + e
+            ds_h_cache[lag] = ds_h_cache[lag] - oldest_h + h
 
-            # if lag == 12:
-            #     # print(f"circbuf {ds_buf[idx]} {ds_buf[twolag_idx+1]} {idx}")
-            #     # if (abs(idx - 1024) / 8) >= 24:
-            #     #     breakpoint()
-            #     slow_e = 0
-            #     slow_h = 0
-            #     for i in range(0, 2 * lag):
-            #         slow_e += np.square(ds_buf[wrap_ds(i, idx)])
-            #     for i in range(0, lag):
-            #         slow_h += (ds_buf[wrap_ds(i, idx)] *
-            #                    ds_buf[wrap_ds(lag + i, idx)])
-
-            #     # if (e_cache[lag] != slow_e):
-            #     #     breakpoint()
-            #     # print(f"Ecb: {e_cache[lag]} {abs(idx - 1024)}")
-
-            #     # print(f"E {e_cache[lag] - slow_e}")
-            #     # print(f"H {h_cache[lag] - slow_h}")
         return
+
+    def init_e_and_h(idx):
+        global e_cache
+        global h_cache
+
+        if LMIN_OFFSET < (MIN_LAG * DS_FACTOR):
+            e_cache = np.zeros(N)
+            h_cache = np.zeros(N)
+            return
+
+        wrap = lambda x, idx: int((idx - x) % mask)
+        offset = lambda x: int((N / 2) + (x - LMIN_OFFSET) - 1)
+        min_lag = int(LMIN_OFFSET - N / 2 + 1)
+        max_lag = int(LMIN_OFFSET + N / 2)
+
+        if idx > (2*max_lag) + 1:
+            test_e = np.sum(np.square(buf[idx-max_lag-max_lag:idx]))
+            test_h = np.sum(buf[idx-max_lag:idx] * buf[idx-max_lag-max_lag:idx - max_lag])
+
+        # work out e and h for max_lag
+        for x in range(0, max_lag + 1):
+            e_cache[offset(max_lag)] += np.square(buf[wrap(
+                x, idx)]) + np.square(buf[wrap(x + max_lag, idx)])
+            h_cache[offset(max_lag)] += buf[wrap(x, idx)] * buf[wrap(x + max_lag,  idx)]
+
+        # take oldest_e and oldest_h away to get the other lags
+        for lag in range(max_lag - 1, min_lag - 1, -1):
+            e_cache[offset(lag)] = e_cache[offset(lag + 1)] - np.square(buf[wrap(2 * (lag + 1), idx)])
+            h_cache[offset(lag)] = h_cache[offset(lag + 1)] - (buf[wrap((lag + 1), idx)] * buf[wrap(2 * (lag + 1), idx)])
+        return
+
+    def update_e_and_h(idx):
+        global e_cache
+        global h_cache
+
+        if LMIN_OFFSET < MIN_LAG:
+            e_cache = np.zeros(N)
+            h_cache = np.zeros(N)
+            return
+
+        wrap = lambda x, idx: int((idx - x) % mask)
+        offset = lambda x: int((N / 2) + (x - LMIN_OFFSET) - 1)
+        min_lag = int(LMIN_OFFSET - N / 2 + 1)
+        max_lag = int(LMIN_OFFSET + N / 2)
+
+        for lag in range(min_lag, max_lag):
+            nolag_idx = wrap(0, idx)
+            onelag_idx = wrap(lag, idx)
+            twolag_idx = wrap(2 * lag, idx)
+
+            oldest_e = np.square(buf[twolag_idx])
+            oldest_h = buf[onelag_idx] * buf[twolag_idx]
+
+            e = np.square(buf[nolag_idx])
+            h = buf[nolag_idx] * buf[onelag_idx]
+
+            e_cache[offset(lag)] = e_cache[offset(lag)] - oldest_e + e
+            h_cache[offset(lag)] = h_cache[offset(lag)] - oldest_h + h
+        return
+
+    def shift_e_and_h_up(idx):
+        global e_cache
+        global h_cache
+        global LMIN_OFFSET
+
+        wrap = lambda x, idx: int((idx - x) % mask)
+
+        for x in range(N-1, 1, -1):
+            e_cache[x] = e_cache[x - 1]
+            h_cache[x] = h_cache[x - 1]
+
+        e_cache[0] = e_cache[1] - np.square(buf[wrap((LMIN_OFFSET - (N / 2) + 2) * 2, idx)])
+        h_cache[0] = h_cache[1] - buf[wrap((LMIN_OFFSET - (N / 2) + 2) * 2, idx)] * buf[wrap((LMIN_OFFSET - (N / 2) + 2), idx)]
+
+        LMIN_OFFSET += 1
+        return
+
+    def shift_e_and_h_down(idx):
+        global e_cache
+        global h_cache
+        global LMIN_OFFSET
+
+        wrap = lambda x, idx: int((idx - x) % mask)
+
+        for x in range(0, N - 2):
+            e_cache[x] = e_cache[x + 1]
+            h_cache[x] = h_cache[x + 1]
+
+        e_cache[N - 1] = e_cache[N - 2] + np.square(buf[wrap((LMIN_OFFSET + (N / 2) + 1) * 2, idx)])
+        h_cache[N - 1] = h_cache[N - 2] - buf[wrap((LMIN_OFFSET + (N / 2) + 1) * 2, idx)] * buf[wrap((LMIN_OFFSET + (N / 2) + 1), idx)]
+
+        LMIN_OFFSET -= 1
+        return
+
+
+    def predict_fine_pitch(idx):
+        conf_cache = (e_cache - (2 * h_cache))
+        lmin = np.argmin(conf_cache)
+
+        if conf_cache[lmin] > (e_cache[lmin] * EPS):
+            return 0
+        elif lmin == 0 or lmin == N-1:
+            return 0
+        elif e_cache[lmin] < MIN_E:
+            return 0
+
+        # parabolic interpolation of lmin to find pmin
+        s0 = conf_cache[lmin - 1]
+        s1 = conf_cache[lmin]
+        s2 = conf_cache[lmin + 1]
+
+        adjustment = (s2 - s0) / (2 * (2 * s1 - s2 - s0))
+
+        if abs(adjustment) > 1:
+            adjustment = 0
+
+        pmin = lmin + adjustment + LMIN_OFFSET
+
+        # shift E and H higher or lower
+        if lmin < N / 2:
+            shift_e_and_h_up(idx)
+        elif lmin > (N / 2) + 1:
+            shift_e_and_h_down(idx)
+
+        return pmin
 
     # audio_path = "/Users/xavriley/Projects/q/test/audio_files/sin_440.wav"
     audio_path = "/Users/xavriley/Projects/AutotuneInPython/bobby.wav"
@@ -193,13 +256,14 @@ def main():
     s2 = 0
     s4 = 0
     s8 = 0
-    e_cache = np.zeros(128)
-    h_cache = np.zeros(128)
+    ds_e_cache = np.zeros(128)
+    ds_h_cache = np.zeros(128)
     frame_output = []
     troughs_output = []
     lmin_output = [[], [], []]
     conf_output = [[], []]
     ds_wave_output = []
+    fine_pitch_output = [[], []]
     frame = np.zeros(128)
     trough = np.array([])
 
@@ -235,27 +299,12 @@ def main():
         if writephase % 40 == 0:
             ds_update_e_and_h(writephase)
 
-            # TODO: compare the non-circular buffered output with the linear
-            # downsampled output to see if the circular buffer is causing the funny dips
-            # if s_idx / 8 >= 24:
-            #     lag = 12
-            #     slow_e = 0
-            #     slow_h = 0
-            #     for i in range(0, (2 * lag)):
-            #         slow_e += np.square(ds_wave_output[(-i - 1):][0])
-
-            #     for i in range(0, lag):
-            #         slow_h += (ds_wave_output[-i - 1] *
-            #                    ds_wave_output[-i - 1 - lag])
-
-            #     if e_cache[lag] != slow_e:
-            #         print(f"Ediff {e_cache[lag] - slow_e}")
-            #         print(f"Hdiff {h_cache[lag] - slow_h}")
 
             frame, lmin1, lmin2, lmin, lmin1_conf, lmin2_conf, trough = ds_predict_pitch(
                 writephase)
-            # if lmin1 < 8 and lmin > 0:
-            #     breakpoint()
+
+            init_e_and_h(writephase)
+            fine_pitch_output[1].append((lmin * DS_FACTOR) + 20)
             lmin_output[0].append(lmin1)
             lmin_output[1].append(lmin2)
             lmin_output[2].append(lmin)
@@ -272,38 +321,55 @@ def main():
             frame_output.append(frame)
             troughs_output.append(trough)
             ds_update_e_and_h(writephase)
+            update_e_and_h(writephase)
+        elif writephase % 5 == 0:
+            fine_pitch_output[1].append(None)
+        else:
+            update_e_and_h(writephase)
+
+        if writephase % 5 == 0:
+            fine_pitch = predict_fine_pitch(writephase)
+            if fine_pitch > 0:
+                fine_pitch_output[0].append(fine_pitch)
+            else:
+                fine_pitch_output[0].append(None)
 
         writephase = (writephase + 1) % mask
 
+    plt.plot(fine_pitch_output[0], color='b')
+    plt.plot(fine_pitch_output[1], color='r')
+
+    plt.show()
+
     fig, axs = plt.subplots(2, sharex=False, sharey=False)
     plt.tight_layout()
-    # axs[0].plot(conf_output[0], ',')
-    # axs[0].plot(conf_output[1], ',')
     fr = 5207
-    axs[0].plot(frame_output[fr])
 
-    tmp_troughs = np.zeros(128)
+    # axs[0].plot(frame_output[fr])
 
-    if (len(troughs_output[fr]) > 0):
-        tmp_troughs[troughs_output[fr]] = EPS
-    axs[0].plot(tmp_troughs)
-    axs[0].plot(lmin_output[0][fr], conf_output[0][fr])
-    axs[0].plot(lmin_output[1][fr], conf_output[1][fr])
-    print(f"chosen lmin: {lmin_output[2][fr]}")
-    # axs[0].set_xlim(0, 60)
-    axs[0].set_ylim(0, EPS)
-    axs[1].pcolormesh(np.array(frame_output).T,
+    # tmp_troughs = np.zeros(128)
+    # if (len(troughs_output[fr]) > 0):
+    #     tmp_troughs[troughs_output[fr]] = EPS
+    # axs[0].plot(tmp_troughs)
+    # axs[0].plot(lmin_output[0][fr], conf_output[0][fr])
+    # axs[0].plot(lmin_output[1][fr], conf_output[1][fr])
+    # print(f"chosen lmin: {lmin_output[2][fr]}")
+    # # axs[0].set_xlim(0, 60)
+    # axs[0].set_ylim(0, EPS)
+
+    range_start = 0
+    range_end = len(lmin_output[2])
+    axs[1].pcolormesh(np.array(frame_output).T[:, range_start:range_end],
                       norm=colors.PowerNorm(gamma=0.5),
                       cmap='PuBu_r',
                       shading='auto')
-    axs[1].plot(lmin_output[1], ',', color=colors.to_rgba('y', 0.5))
-    axs[1].plot(lmin_output[0], ',', color=colors.to_rgba('g', 0.5))
-    axs[1].plot(lmin_output[2], '.', color=colors.to_rgba('r', 0.75))
+    axs[1].plot(lmin_output[1][range_start:range_end], ',', color=colors.to_rgba('y', 0.5))
+    axs[1].plot(lmin_output[0][range_start:range_end], ',', color=colors.to_rgba('g', 0.5))
+    axs[1].plot(lmin_output[2][range_start:range_end], '.', color=colors.to_rgba('r', 0.75))
     # axs[1].plot(ds_wave_output)
     plt.savefig('bobby.png', dpi=300)
     import subprocess
     subprocess.run(["open", "-g", "bobby.png"])
-    breakpoint()
 
 
 if __name__ == "__main__":
