@@ -2,6 +2,7 @@ import numpy as np
 import librosa
 import matplotlib.colors as colors
 import matplotlib.pyplot as plt
+from matplotlib.animation import FuncAnimation
 
 DS_FACTOR = 8
 EPS = 0.4
@@ -160,11 +161,11 @@ def main():
             return
 
         wrap = lambda x, idx: int((idx - x) % mask)
-        offset = lambda x: int((N / 2) + (x - LMIN_OFFSET) - 1)
-        min_lag = int(LMIN_OFFSET - N / 2 + 1)
-        max_lag = int(LMIN_OFFSET + N / 2)
+        offset = lambda x: int((N / 2) + (x - LMIN_OFFSET))
+        min_lag = int(LMIN_OFFSET - N / 2)
+        max_lag = int(LMIN_OFFSET + N / 2) - 1
 
-        for lag in range(min_lag, max_lag):
+        for lag in range(min_lag, max_lag + 1):
             nolag_idx = wrap(0, idx)
             onelag_idx = wrap(lag, idx)
             twolag_idx = wrap(2 * lag, idx)
@@ -179,23 +180,6 @@ def main():
             h_cache[offset(lag)] = h_cache[offset(lag)] - oldest_h + h
         return
 
-    def shift_e_and_h_up(idx):
-        global e_cache
-        global h_cache
-        global LMIN_OFFSET
-
-        wrap = lambda x, idx: int((idx - x) % mask)
-
-        for x in range(N-1, 1, -1):
-            e_cache[x] = e_cache[x - 1]
-            h_cache[x] = h_cache[x - 1]
-
-        e_cache[0] = e_cache[1] - np.square(buf[wrap((LMIN_OFFSET - (N / 2) + 2) * 2, idx)])
-        h_cache[0] = h_cache[1] - buf[wrap((LMIN_OFFSET - (N / 2) + 2) * 2, idx)] * buf[wrap((LMIN_OFFSET - (N / 2) + 2), idx)]
-
-        LMIN_OFFSET += 1
-        return
-
     def shift_e_and_h_down(idx):
         global e_cache
         global h_cache
@@ -203,12 +187,32 @@ def main():
 
         wrap = lambda x, idx: int((idx - x) % mask)
 
-        for x in range(0, N - 2):
+        for x in range(N-1, 0, -1):
+            e_cache[x] = e_cache[x - 1]
+            h_cache[x] = h_cache[x - 1]
+
+        # TODO: Check that the logic around moving e and h is correct
+        e_cache[0] = e_cache[1] - np.square(buf[wrap((LMIN_OFFSET - (N / 2) - 1) * 2, idx)])
+        h_cache[0] = h_cache[1] - buf[wrap((LMIN_OFFSET - (N / 2) - 1) * 2, idx)] * buf[wrap((LMIN_OFFSET - (N / 2) - 1), idx)]
+
+        LMIN_OFFSET += 1
+        return
+
+    def shift_e_and_h_up(idx):
+        global e_cache
+        global h_cache
+        global LMIN_OFFSET
+
+        wrap = lambda x, idx: int((idx - x) % mask)
+
+        for x in range(0, N - 1):
             e_cache[x] = e_cache[x + 1]
             h_cache[x] = h_cache[x + 1]
 
-        e_cache[N - 1] = e_cache[N - 2] + np.square(buf[wrap((LMIN_OFFSET + (N / 2) + 1) * 2, idx)])
-        h_cache[N - 1] = h_cache[N - 2] - buf[wrap((LMIN_OFFSET + (N / 2) + 1) * 2, idx)] * buf[wrap((LMIN_OFFSET + (N / 2) + 1), idx)]
+        # TODO: this seems right but the values for e_cache don't match the value for E when calculated with
+        # np.sum(np.square(buf[idx - int(2 * (LMIN_OFFSET + (N/2))):idx]))
+        e_cache[N - 1] = e_cache[N - 2] + np.square(buf[wrap((LMIN_OFFSET + (N / 2)) * 2, idx)])
+        h_cache[N - 1] = h_cache[N - 2] - buf[wrap((LMIN_OFFSET + (N / 2)) * 2, idx)] * buf[wrap((LMIN_OFFSET + (N / 2)), idx)]
 
         LMIN_OFFSET -= 1
         return
@@ -238,10 +242,10 @@ def main():
         pmin = lmin + adjustment + LMIN_OFFSET
 
         # shift E and H higher or lower
-        if lmin < N / 2:
-            shift_e_and_h_up(idx)
-        elif lmin > (N / 2) + 1:
+        if lmin < N / 2: # less than 4
             shift_e_and_h_down(idx)
+        elif lmin >= (N / 2) + 1: # greater than 5
+            shift_e_and_h_up(idx)
 
         return pmin
 
@@ -341,9 +345,23 @@ def main():
 
     plt.show()
 
+    # fig, ax = plt.subplots()
+    # def animate(i):
+    #     ax.clear()
+    #     ax.plot(frame_output[5000 + i])
+    #     ax.set_xlim(0, 60)
+    #     ax.set_ylim(0, EPS)
+    #
+    # # run the animation
+    # ani = FuncAnimation(fig, animate, frames=2000, interval=50, repeat=False)
+    #
+    # plt.show()
+
     fig, axs = plt.subplots(2, sharex=False, sharey=False)
     plt.tight_layout()
     fr = 5207
+
+
 
     # axs[0].plot(frame_output[fr])
 
