@@ -4,6 +4,7 @@ import matplotlib.colors as colors
 import matplotlib.pyplot as plt
 from matplotlib.animation import FuncAnimation
 
+DEBUG = False
 DS_FACTOR = 8
 EPS = 0.4
 MIN_E = 0.05
@@ -106,7 +107,7 @@ def main():
                           ds_factor=DS_FACTOR):
         # wrap_ds = lambda x, idx: (idx - (x * DS_FACTOR)) % mask
         wrap_ds = lambda x, idx: (idx - (ds_factor * x)) % mask
-        for lag in range(min_lag, max_lag):
+        for lag in range(min_lag, max_lag + 1):
             onelag_idx = wrap_ds(lag, idx)
             twolag_idx = wrap_ds(2 * lag, idx)
 
@@ -170,10 +171,7 @@ def main():
         min_lag = int(LMIN_OFFSET - N / 2)
         max_lag = int(LMIN_OFFSET + N / 2) - 1
 
-        # DEBUG
-        # if idx > (2*max_lag) + 1:
-        #     test_e = np.sum(np.square(buf[idx-max_lag-max_lag + 1:idx+1]))
-        #     test_h = np.sum(buf[idx-max_lag + 1:idx + 1] * buf[idx-max_lag-max_lag+1:idx - max_lag + 1])
+        e_cache_before = e_cache.copy()
 
         for lag in range(min_lag, max_lag + 1):
             nolag_idx = wrap(0, idx)
@@ -188,6 +186,18 @@ def main():
 
             e_cache[offset(lag)] = e_cache[offset(lag)] - oldest_e + e
             h_cache[offset(lag)] = h_cache[offset(lag)] - oldest_h + h
+
+        # DEBUG
+        if idx > (2*max_lag) + 1:
+            max_test_e = np.sum(np.square(buf[idx-max_lag-max_lag + 1:idx+1]))
+            max_test_h = np.sum(buf[idx-max_lag + 1:idx + 1] * buf[idx-max_lag-max_lag+1:idx - max_lag + 1])
+            min_test_e = np.sum(np.square(buf[idx - min_lag - min_lag + 1:idx + 1]))
+            min_test_h = np.sum(buf[idx - min_lag + 1:idx + 1] * buf[idx - min_lag - min_lag + 1:idx - min_lag + 1])
+            assert(max_test_e == e_cache[7])
+            assert(max_test_h == h_cache[7])
+            assert(min_test_e == e_cache[0])
+            assert(min_test_h == h_cache[0])
+
         return
 
     def shift_e_and_h_down(idx):
@@ -201,13 +211,14 @@ def main():
             e_cache[x] = e_cache[x - 1]
             h_cache[x] = h_cache[x - 1]
 
-        # TODO: Check that the logic around moving e and h is correct
         e_cache[0] = e_cache[0] - np.square(buf[wrap(((LMIN_OFFSET - (N / 2)) * 2) - 1, idx)]) - np.square(buf[wrap(((LMIN_OFFSET - (N / 2)) * 2) - 2, idx)])
 
+        h_cache[0] = 0
+        temp_lag = (LMIN_OFFSET - int(N/2)) - 1
+        for x in range(0, temp_lag):
+            h_cache[0] += buf[wrap(x, idx)] * buf[wrap(x + temp_lag, idx)]
 
-        h_cache[0] = h_cache[1] - buf[wrap((LMIN_OFFSET - (N / 2) - 1) * 2, idx)] * buf[wrap((LMIN_OFFSET - (N / 2) - 1), idx)]
-
-        LMIN_OFFSET += 1
+        LMIN_OFFSET -= 1
         return
 
     def shift_e_and_h_up(idx):
@@ -221,12 +232,14 @@ def main():
             e_cache[x] = e_cache[x + 1]
             h_cache[x] = h_cache[x + 1]
 
-        # TODO: this seems right but the values for e_cache don't match the value for E when calculated with
-        # np.sum(np.square(buf[idx - int(2 * (LMIN_OFFSET + (N/2))):idx]))
-        e_cache[N - 1] = e_cache[N - 2] + np.square(buf[wrap((LMIN_OFFSET + (N / 2)) * 2, idx)])
-        h_cache[N - 1] = h_cache[N - 2] - buf[wrap((LMIN_OFFSET + (N / 2)) * 2, idx)] * buf[wrap((LMIN_OFFSET + (N / 2)), idx)]
+        e_cache[N - 1] = e_cache[N-1] + np.square(buf[wrap(2 * (LMIN_OFFSET + (int(N/2) - 1)) + 1, idx)]) + np.square(buf[wrap(2 * (LMIN_OFFSET + (int(N/2) - 1)), idx)])
 
-        LMIN_OFFSET -= 1
+        h_cache[N - 1] = 0
+        temp_lag = (LMIN_OFFSET + int(N/2))
+        for x in range(0, temp_lag):
+            h_cache[N - 1] += buf[wrap(x, idx)] * buf[wrap(x + temp_lag, idx)]
+
+        LMIN_OFFSET += 1
         return
 
 
@@ -248,16 +261,28 @@ def main():
 
         adjustment = (s2 - s0) / (2 * (2 * s1 - s2 - s0))
 
-        if abs(adjustment) > 1:
-            adjustment = 0
+        # if abs(adjustment) > 1:
+        #     adjustment = 0
 
         pmin = lmin + adjustment + LMIN_OFFSET
 
         # shift E and H higher or lower
         if lmin < N / 2: # less than 4
+            if DEBUG and (idx > (2 * (LMIN_OFFSET + 4))):
+                print(f"SHIFT DOWN {idx} {LMIN_OFFSET} {e_cache[0]} {h_cache[0]}")
+                print(f"E: {np.sum(np.square(buf[idx - (2 * (LMIN_OFFSET - 5)) + 1:idx + 1]))}")
+                print(f"H: {np.sum((buf[idx - (2 * (LMIN_OFFSET - 5)) + 1:idx - (LMIN_OFFSET - 5) + 1] * buf[idx - (LMIN_OFFSET - 5) + 1:idx + 1]))}")
             shift_e_and_h_down(idx)
+            if DEBUG:
+                print(f"{LMIN_OFFSET} {e_cache[0]} {h_cache[0]}")
         elif lmin >= (N / 2) + 1: # greater than 5
+            if DEBUG and (idx > (2 * (LMIN_OFFSET))):
+                print(f"SHIFT UP {idx} {LMIN_OFFSET} {e_cache[7]} {h_cache[7]}")
+                print(f"E: {np.sum(np.square(buf[idx - (2 * (LMIN_OFFSET + 4)) + 1:idx + 1]))}")
+                print(f"H: {np.sum((buf[idx - (2 * (LMIN_OFFSET + 4)) + 1:idx - (LMIN_OFFSET + 4) + 1] * buf[idx - (LMIN_OFFSET + 4) + 1:idx + 1]))}")
             shift_e_and_h_up(idx)
+            if DEBUG:
+                print(f"{LMIN_OFFSET} {e_cache[0]} {h_cache[0]}")
 
         return pmin
 
@@ -338,9 +363,6 @@ def main():
             troughs_output.append(trough)
             ds_update_e_and_h(writephase)
             update_e_and_h(writephase)
-        elif writephase % 5 == 0:
-            # fine_pitch_output[1].append(None)
-            update_e_and_h(writephase)
         else:
             update_e_and_h(writephase)
 
@@ -359,26 +381,24 @@ def main():
     plt.show()
 
     # TODO: peak picking still getting spurious dips at the start
-    # e and h for hi-res should be right now but the graph seems too jumpy
-    # check shift functions
-    # are they being called often enough?
+    # hi-res is working but has a lot of gaps
     # is this actually any faster or more accurate than yin? O(NK) vs O(n log n)
     # improve animation for chosen lmin
 
-    fig, ax = plt.subplots()
-    def animate(i):
-        ax.clear()
-        ax.set_title(f"{5000 + i}")
-        ax.plot(frame_output[5000 + i])
-        ax.vlines(troughs_output[5000 + i], 0, EPS)
-        ax.vlines(lmin_output[2][5000 + i], 0, EPS, colors=['r'])
-        ax.set_xlim(0, 60)
-        ax.set_ylim(0, EPS)
-
-    # run the animation
-    ani = FuncAnimation(fig, animate, frames=2000, interval=50, repeat=False)
-
-    plt.show()
+    # fig, ax = plt.subplots()
+    # def animate(i):
+    #     ax.clear()
+    #     ax.set_title(f"{5000 + i}")
+    #     ax.plot(frame_output[5000 + i])
+    #     ax.vlines(troughs_output[5000 + i], 0, EPS)
+    #     ax.vlines(lmin_output[2][5000 + i], 0, EPS, colors=['r'])
+    #     ax.set_xlim(0, 60)
+    #     ax.set_ylim(0, EPS)
+    #
+    # # run the animation
+    # ani = FuncAnimation(fig, animate, frames=2000, interval=50, repeat=False)
+    #
+    # plt.show()
 
     fig, axs = plt.subplots(2, sharex=False, sharey=False)
     plt.tight_layout()
