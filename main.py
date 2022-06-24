@@ -14,6 +14,7 @@ N = 8
 LMIN_OFFSET = 0
 e_cache = np.zeros(N)
 h_cache = np.zeros(N)
+counter = 0
 
 
 def main():
@@ -244,15 +245,17 @@ def main():
 
 
     def predict_fine_pitch(idx):
+        global counter
+
         conf_cache = (e_cache - (2 * h_cache))
         lmin = np.argmin(conf_cache)
 
         if conf_cache[lmin] > (e_cache[lmin] * EPS):
-            return 0
+            return LMIN_OFFSET
         elif lmin == 0 or lmin == N-1:
-            return 0
+            return LMIN_OFFSET
         elif e_cache[lmin] < MIN_E:
-            return 0
+            return LMIN_OFFSET
 
         # parabolic interpolation of lmin to find pmin
         s0 = conf_cache[lmin - 1]
@@ -304,7 +307,7 @@ def main():
     lmin_output = [[], [], []]
     conf_output = [[], []]
     ds_wave_output = []
-    fine_pitch_output = [[], []]
+    fine_pitch_output = [[], [], []]
     frame = np.zeros(128)
     trough = np.array([])
 
@@ -346,6 +349,8 @@ def main():
 
             init_e_and_h(writephase)
             fine_pitch_output[1].append((lmin * DS_FACTOR) + 20)
+            for x in range(0, 7):
+                fine_pitch_output[1].append(0)
             lmin_output[0].append(lmin1)
             lmin_output[1].append(lmin2)
             lmin_output[2].append(lmin)
@@ -372,11 +377,16 @@ def main():
                 fine_pitch_output[0].append(fine_pitch)
             else:
                 fine_pitch_output[0].append(None)
+            fine_pitch_output[2].append(LMIN_OFFSET)
 
         writephase = (writephase + 1) % mask
 
-    plt.plot(fine_pitch_output[0], color='b')
-    plt.plot(fine_pitch_output[1], color='r')
+    range_start = 0
+    range_end = -1
+
+    plt.plot(fine_pitch_output[0][range_start:range_end], color='b')
+    plt.plot(fine_pitch_output[1][range_start:range_end], '.', color='r')
+    plt.plot(fine_pitch_output[2][range_start:range_end], '.', color=colors.to_rgba('g', 0.5))
 
     plt.show()
 
@@ -418,19 +428,20 @@ def main():
     # # axs[0].set_xlim(0, 60)
     # axs[0].set_ylim(0, EPS)
 
-    range_start = 0
-    range_end = len(lmin_output[2])
-    axs[1].pcolormesh(np.array(frame_output).T[:, range_start:range_end],
-                      norm=colors.PowerNorm(gamma=0.5),
-                      cmap='PuBu_r',
-                      shading='auto')
-    axs[1].plot(lmin_output[1][range_start:range_end], ',', color=colors.to_rgba('y', 0.5))
-    axs[1].plot(lmin_output[0][range_start:range_end], ',', color=colors.to_rgba('g', 0.5))
-    axs[1].plot(lmin_output[2][range_start:range_end], '.', color=colors.to_rgba('r', 0.75))
-    # axs[1].plot(ds_wave_output)
-    plt.savefig('bobby.png', dpi=300)
-    import subprocess
-    subprocess.run(["open", "-g", "bobby.png"])
+
+    # axs[1].pcolormesh(np.array(frame_output).T[:, range_start:range_end],
+    #                   norm=colors.PowerNorm(gamma=0.5),
+    #                   cmap='PuBu_r',
+    #                   shading='auto')
+    # axs[1].plot(lmin_output[1][range_start:range_end], ',', color=colors.to_rgba('y', 0.5))
+    # axs[1].plot(lmin_output[0][range_start:range_end], ',', color=colors.to_rgba('g', 0.5))
+    # axs[1].plot(lmin_output[2][range_start:range_end], '.', color=colors.to_rgba('r', 0.75))
+    # # axs[1].plot(ds_wave_output)
+    # plt.savefig('bobby.png', dpi=300)
+    # import subprocess
+    # subprocess.run(["open", "-g", "bobby.png"])
+
+    print(f"hires above threshold: {counter}")
 
 
 if __name__ == "__main__":
