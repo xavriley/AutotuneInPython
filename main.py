@@ -80,6 +80,7 @@ def main():
             # Here we check for a valid lmin2
             lmin2_is_valid = lmin2 > 0 and lmin2 < 110
 
+            # TODO: patent mentions that lmin1 and lmin2 are compared at the full resolution - implement this
             # and then compare the confidences (already scaled for the lag relative to E for a fair comparison)
             if lmin2_is_valid and (lmin2_conf * 3) < lmin1_conf:
                 frame[lmin2] = lmin2_conf * 3
@@ -201,7 +202,7 @@ def main():
 
         return
 
-    def shift_e_and_h_down(idx):
+    def shift_e_and_h_up(idx):
         global e_cache
         global h_cache
         global LMIN_OFFSET
@@ -222,7 +223,7 @@ def main():
         LMIN_OFFSET -= 1
         return
 
-    def shift_e_and_h_up(idx):
+    def shift_e_and_h_down(idx):
         global e_cache
         global h_cache
         global LMIN_OFFSET
@@ -251,11 +252,15 @@ def main():
         lmin = np.argmin(conf_cache)
 
         if conf_cache[lmin] > (e_cache[lmin] * EPS):
-            return LMIN_OFFSET
-        elif lmin == 0 or lmin == N-1:
-            return LMIN_OFFSET
+            return 0
+        elif lmin == 0:
+            # shift_e_and_h_down(idx)
+            return lmin + LMIN_OFFSET
+        elif lmin == N-1:
+            # shift_e_and_h_up(idx)
+            return lmin + LMIN_OFFSET
         elif e_cache[lmin] < MIN_E:
-            return LMIN_OFFSET
+            return 0
 
         # parabolic interpolation of lmin to find pmin
         s0 = conf_cache[lmin - 1]
@@ -376,7 +381,7 @@ def main():
             if fine_pitch > 0:
                 fine_pitch_output[0].append(fine_pitch)
             else:
-                fine_pitch_output[0].append(None)
+                fine_pitch_output[0].append(0)
             fine_pitch_output[2].append(LMIN_OFFSET)
 
         writephase = (writephase + 1) % mask
@@ -384,9 +389,9 @@ def main():
     range_start = 0
     range_end = -1
 
-    plt.plot(fine_pitch_output[0][range_start:range_end], color='b')
-    plt.plot(fine_pitch_output[1][range_start:range_end], '.', color='r')
-    plt.plot(fine_pitch_output[2][range_start:range_end], '.', color=colors.to_rgba('g', 0.5))
+    plt.plot(fine_pitch_output[0][range_start:range_end], ',', color='b')
+    # plt.plot(fine_pitch_output[1][range_start:range_end], '.', color='r')
+    plt.plot(fine_pitch_output[2][range_start:range_end], ',', color=colors.to_rgba('g', 0.5))
 
     plt.show()
 
