@@ -36,95 +36,107 @@ def find_conf(y, ds_factor=1):
 
     return e_cache, h_cache
 
-
+# @jit(nopython=False)
 def find_lmin(res, e_cache):
     lmins = []
     lmin_idxs = []
     min_e = 0.5
     eps = 0.4
+    min_lag = 16
 
     for idx in range(0, res.shape[1]):
         lmin = 0
-        lmin1 = 0
-        lmin2 = 0
+        lmin1 = 1000
+        lmin2 = 1000
         lmin_idx = 0
 
         frame = res[:, idx]
         e_frame = e_cache[:, idx]
 
+        region_mins = []
+        last_conf = 0
+        region_start = -1
+        region_end = -1
+        for (lag,), conf in np.ndenumerate(frame):
+            if conf > e_frame[lag]:
+                conf = 0
 
-        # region_mins = []
-        # last_conf = 0
-        # region_start = -1
-        # region_end = -1
-        # for (lag,), conf in np.ndenumerate(frame):
-        #     if conf > e_frame[lag]:
-        #         conf = 0
-        #
-        #     if last_conf == 0 and conf > 0:
-        #         region_start = lag
-        #
-        #     if region_start > -1:
-        #         if last_conf >= 0 and conf == 0:
-        #             region_end = lag
-        #
-        #     last_conf = conf
-        #
-        #     if region_start > 0 and region_end > 0:
-        #         if frame[region_start:region_end].shape[0] < 1:
-        #             continue
-        #
-        #         current_lmin_idx = region_start + np.argmin(frame[region_start:region_end])
-        #         if current_lmin_idx > lmin_idx:
-        #             lmin_idx = current_lmin_idx
-        #         else:
-        #             continue
-        #
-        #         if e_frame[lmin_idx] < min_e:
-        #             continue
-        #         if frame[lmin_idx] > (e_frame[lmin_idx] * eps):
-        #             continue
-        #
-        #         print(f"{idx} {region_start} {lmin_idx}")
-        #         region_mins.append(lmin_idx)
-        #         region_start = -1
-        #         region_end = -1
+            if last_conf == 0 and conf > 0:
+                region_start = lag
 
+            if region_start > -1:
+                if last_conf >= 0 and conf == 0:
+                    region_end = lag
 
-        peaks = find_peaks(frame, distance=8)
-        troughs = find_peaks(1-frame, distance=8)
+            last_conf = conf
 
-        peaks_above_e = peaks[0][frame[peaks[0]] > e_frame[peaks[0]]]
+            if region_start > 0 and region_end > 0:
+                if region_start >= region_end:
+                    # skip zero length regions or regions in progress
+                    continue
 
-        if len(peaks_above_e) == 0:
+                if region_start == min_lag:
+                    # skip any spurious minima near zero
+                    continue
+
+                # find the minima for this region
+                current_lmin_idx = region_start + np.argmin(frame[region_start:region_end])
+
+                if current_lmin_idx > lmin_idx:
+                    lmin_idx = current_lmin_idx
+                else:
+                    continue
+
+                if frame[lmin_idx] > (e_frame[lmin_idx] * eps):
+                    continue
+
+                if e_frame[lmin_idx] < min_e:
+                    # if we found a local minima that didn't meet the min energy,
+                    # then we store a zero prediction to prevent the larger lags
+                    # from winning, by virtue of their energy tailing off more slowly
+                    region_mins.append([0, 0])
+                    continue
+
+                region_mins.append([lmin_idx, frame[int(lmin_idx)]])
+                region_start = -1
+                region_end = -1
+
+        if len(region_mins) == 0:
             lmins.append(0)
             lmin_idxs.append(0)
             continue
 
-        troughs_after_initial_peak = troughs[0][troughs[0] > peaks_above_e[0]]
-        troughs_below_e = troughs_after_initial_peak[frame[troughs_after_initial_peak] < (e_frame[troughs_after_initial_peak] * eps)]
-        troughs = troughs_below_e
+        if len(region_mins) > 0:
+            lmin1 = region_mins[0][1]
 
-        if len(troughs) > 0:
-            lmin1 = frame[troughs[0]]
-
-        if len(troughs) > 1:
-            lmin2 = frame[troughs[1]]
+        if len(region_mins) > 1:
+            lmin2 = region_mins[1][1]
 
         if lmin2 and lmin2 < lmin1:
             lmin = lmin2
-            lmin_idx = troughs[1]
-        elif lmin1 > 0:
+            lmin_idx = region_mins[1][0]
+        elif lmin1 < 1000:
             lmin = lmin1
-            lmin_idx = troughs[0]
+            lmin_idx = region_mins[0][0]
 
-        if e_frame[lmin_idx] < min_e:
+        if e_frame[int(lmin_idx)] < min_e:
             lmins.append(0)
             lmin_idxs.append(0)
             continue
 
+        s0 = frame[lmin_idx - 1]
+        s1 = frame[lmin_idx]
+        s2 = frame[lmin_idx + 1]
+
+        adjustment = (s2 - s0) / (2 * (2 * s1 - s2 - s0))
+
+        if abs(adjustment) > 1:
+            adjustment = 0
+
+        pmin = lmin_idx + adjustment
+
         lmins.append(lmin)
-        lmin_idxs.append(lmin_idx)
+        lmin_idxs.append(pmin)
 
     return lmins, lmin_idxs
 
@@ -148,7 +160,11 @@ if __name__ == '__main__':
         h_cache = np.load('h_cache.npy')
         res = np.load('cache.npy')
 
-    lmins, lmin_idxs = find_lmin(res, e_cache)
+    section_start = 0
+    section_end = res.shape[1]
+    res_chunk = res[:, section_start:section_end]
+    e_chunk = e_cache[:, section_start:section_end]
+    lmins, lmin_idxs = find_lmin(res_chunk, e_chunk)
 
     eps = 0.4
     fr = int(34500/8)
@@ -163,30 +179,33 @@ if __name__ == '__main__':
     # plt.show()
 
     def view_frame(f):
-        return res[:, int(f)]
+        return res_chunk[:, int(f)]
 
     def view_e_cache(f):
-        return e_cache[:, int(f)] * eps
+        return e_chunk[:, int(f)] * eps
 
     def view_lmins(f):
         return lmin_idxs[int(f)], lmins[int(f)]
 
     def view_min_e(f):
-        return lmin_idxs[int(f)], e_cache[lmin_idxs[int(f)], int(f)]
+        return lmin_idxs[int(f)], e_chunk[int(lmin_idxs[int(f)]), int(f)]
 
 
     fig, ax = plt.subplots()
-    ax.pcolormesh(res)
+    ax.pcolormesh(res_chunk)
     ax.plot(lmin_idxs, ',')
     plt.savefig('bobby.png', dpi=300)
     import subprocess
     subprocess.run(["open", "-g", "bobby.png"])
+    plt.clf()
 
     fig, ax = plt.subplots()
-    line, = plt.plot(view_frame(2500), lw=2)
-    e_line, = plt.plot(view_e_cache(2500), lw=2)
-    lmin_points, = plt.plot(*view_lmins(2500), '.')
-    min_e_points, = plt.plot(*view_min_e(2500), '.')
+    ax.set_ylim(0, 20)
+    initial_frame = int((section_end-section_start)/2)
+    line, = plt.plot(view_frame(initial_frame), lw=2)
+    e_line, = plt.plot(view_e_cache(initial_frame), lw=2)
+    lmin_points, = plt.plot(*view_lmins(initial_frame), '.')
+    min_e_points, = plt.plot(*view_min_e(initial_frame), '.')
     plt.hlines(0.1, 0, 880)
 
     # adjust the main plot to make room for the sliders
@@ -198,17 +217,18 @@ if __name__ == '__main__':
     frame_slider = Slider(
         ax=axfreq,
         label='',
-        valmin=0,
-        valmax=res.shape[1],
-        valinit=2500,
+        valmin=section_start,
+        valmax=section_end,
+        valinit=initial_frame,
     )
 
     # The function to be called anytime a slider's value changes
     def update(val):
-        line.set_ydata(view_frame(frame_slider.val))
-        e_line.set_ydata(view_e_cache(frame_slider.val))
-        lmin_points.set_data(view_lmins(frame_slider.val))
-        min_e_points.set_data(view_min_e(frame_slider.val))
+        slider_val = frame_slider.val - section_start
+        line.set_ydata(view_frame(slider_val))
+        e_line.set_ydata(view_e_cache(slider_val))
+        lmin_points.set_data(view_lmins(slider_val))
+        min_e_points.set_data(view_min_e(slider_val))
         fig.canvas.draw_idle()
 
 
